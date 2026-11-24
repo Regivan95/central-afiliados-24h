@@ -1,0 +1,10 @@
+import React, {useEffect,useState} from 'react';
+import {supabase} from './supabase.js';
+export function AuthGate({children}){
+ const [session,setSession]=useState(null),[ready,setReady]=useState(false),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[mode,setMode]=useState('login'),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+ useEffect(()=>{const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,s)=>{setSession(s);setReady(true)});return ()=>subscription.unsubscribe()},[]);
+ async function submit(e){e.preventDefault();setBusy(true);setMessage('');try{const {error}=mode==='login'?await supabase.auth.signInWithPassword({email,password}):await supabase.auth.signUp({email,password});setMessage(error?error.message:mode==='signup'?'Confira seu e-mail para confirmar o cadastro.':'Login realizado.')}catch{setMessage('Falha de conexão. Tente novamente.')}finally{setBusy(false)}}
+ if(!ready)return <p>Carregando sessão...</p>;
+ if(session)return <><div style={{padding:12,textAlign:'right'}}><button className="secondary" onClick={async()=>{const {error}=await supabase.auth.signOut();if(error)setMessage(error.message)}}>Sair</button>{message&&<p role="status">{message}</p>}</div>{children}</>;
+ return <main style={{maxWidth:420,margin:'60px auto',padding:20}}><form className="section-card" onSubmit={submit}><h2>Central de Afiliados 24h</h2><h3>{mode==='login'?'Entrar':'Criar conta'}</h3><label>E-mail<input type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Senha<input type="password" required minLength={8} value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="primary full" disabled={busy}>{busy?'Aguarde...':mode==='login'?'Entrar':'Cadastrar'}</button><button type="button" className="secondary full" onClick={()=>{setMode(mode==='login'?'signup':'login');setMessage('')}}>{mode==='login'?'Criar conta':'Já tenho conta'}</button><p role="status">{message}</p></form></main>
+}
