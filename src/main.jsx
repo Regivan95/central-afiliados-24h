@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LayoutDashboard, Package, Megaphone, Settings, Search, Plus, ExternalLink, Copy, ShoppingBag, Store, MousePointerClick, Link2, Trash2, Sparkles, Menu, X, Check, Smartphone, Monitor } from 'lucide-react';
 import './styles.css';
+import { supabase } from './supabase.js';
 import { AuthGate } from './AuthGate.jsx';
 
 const KEY = 'central-afiliados-produtos-v1';
@@ -11,7 +12,7 @@ const initial = [
 ];
 function load() { try { return JSON.parse(localStorage.getItem(KEY)) ?? initial; } catch { return initial; } }
 function App() {
-  const [items, setItems] = useState(load);
+  const [items, setItems] = useState([]);
   const [page, setPage] = useState('Visão geral');
   const [query, setQuery] = useState('');
   const [platform, setPlatform] = useState('Todas');
@@ -21,16 +22,21 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [adText, setAdText] = useState('');
-  const save = (next) => { setItems(next); localStorage.setItem(KEY, JSON.stringify(next)); };
+  const [busy,setBusy]=useState(false);
+  const mapRow=p=>({id:p.id,name:p.nome,platform:p.plataforma,price:p.preco==null?'':Number(p.preco).toFixed(2).replace('.',','),url:p.link_afiliado,category:p.categoria||'',createdAt:p.criado_em});
+  useEffect(()=>{let active=true;supabase.from('produtos').select('*').order('criado_em',{ascending:false}).then(({data,error})=>{if(!active)return;if(error)notify(error.message);else setItems(data.map(mapRow))});return ()=>{active=false}},[]);
+  const importLocal=async()=>{if(busy)return;setBusy(true);try{const local=JSON.parse(localStorage.getItem(KEY)||'[]');for(const p of local){if(items.some(x=>x.url===p.url&&x.name===p.name))continue;await insertProduct(p)}notify('Importação concluída. Confira o catálogo.')}catch(e){notify(e.message)}finally{setBusy(false)}};
+  async function insertProduct(p){const url=new URL(p.url);if(url.protocol!=='https:')throw Error('Use um link HTTPS válido.');const price=p.price?Number(p.price.includes(',')?p.price.replace(/\\./g,'').replace(',','.'):p.price):null;if(price!==null&&(!Number.isFinite(price)||price<0))throw Error('Preço inválido.');const {data,error}=await supabase.from('produtos').insert({nome:p.name.trim(),plataforma:p.platform,preco:price,link_afiliado:url.href,categoria:p.category}).select().single();if(error)throw error;setItems(old=>[mapRow(data),...old]);}
+
   const filtered = useMemo(() => items.filter(p => (platform === 'Todas' || p.platform === platform) && (p.name+p.category).toLowerCase().includes(query.toLowerCase())), [items, platform, query]);
   const notify = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2400); };
-  const add = (e) => {
+  const add = async (e) => {
     e.preventDefault();
     if (!form.name.trim() || !form.url.trim()) return;
-    save([{ ...form, id: Date.now(), createdAt: new Date().toISOString() }, ...items]);
+    if(busy)return;setBusy(true);try{await insertProduct(form)}catch(e){notify(e.message);return}finally{setBusy(false)}
     setForm({ name:'', platform:'Shopee', price:'', url:'', category:'' }); setModal(false); notify('Produto cadastrado!');
   };
-  const remove = (id) => { save(items.filter(p => p.id !== id)); if(selected?.id===id) setSelected(null); notify('Produto removido.'); };
+  const remove = async (id) => { const {error}=await supabase.from('produtos').delete().eq('id',id);if(error){notify(error.message);return}setItems(old=>old.filter(p=>p.id!==id)); if(selected?.id===id) setSelected(null); notify('Produto removido.'); };
   const copy = async (value, msg) => { try { await navigator.clipboard.writeText(value); notify(msg); } catch { notify('Não foi possível copiar neste navegador.'); } };
   const makeAd = (p) => { setSelected(p); setAdText('🔥 OLHA ESSA OPORTUNIDADE!\n\n' + p.name + (p.price ? '\nPor apenas R$ ' + p.price : '') + '\n\nConfira aqui: ' + p.url + '\n\n#oferta #achadinhos #promoção #afiliado'); setPage('Criador de anúncios'); };
   const nav = [{name:'Visão geral',icon:LayoutDashboard},{name:'Meus produtos',icon:Package},{name:'Criador de anúncios',icon:Megaphone},{name:'Configurações',icon:Settings}];
@@ -41,7 +47,7 @@ function App() {
       <div className="brand"><div className="brand-mark"><Megaphone size={22}/></div><div><b>Central de Afiliados</b><small>24H · PAINEL</small></div><button className="close-menu" onClick={()=>setMenuOpen(false)}><X/></button></div>
       <div className="nav-label">MENU PRINCIPAL</div>
       {nav.map(n=><button key={n.name} className={'nav-item '+(page===n.name?'active':'')} onClick={()=>{setPage(n.name);setMenuOpen(false)}}><n.icon size={18}/>{n.name}</button>)}
-      <div className="sidebar-bottom"><div className="status-dot"/> Painel local · versão 0.1.0</div>
+      <div className="sidebar-bottom"><div className="status-dot"/> Painel em nuvem · versão 0.2.0</div>
     </aside>
     {menuOpen && <div className="scrim" onClick={()=>setMenuOpen(false)}/>}
     <main className="main">
@@ -60,8 +66,8 @@ function App() {
         </>}
         {page==='Meus produtos' && <section className="section-card"><div className="section-head wrap"><div><h3>Seu catálogo de ofertas</h3><p>Organize seus links da Shopee e do Mercado Livre.</p></div><button className="primary" onClick={()=>setModal(true)}><Plus size={17}/> Novo produto</button></div><div className="filters"><div className="search"><Search size={17}/><input placeholder="Buscar produto ou categoria..." value={query} onChange={e=>setQuery(e.target.value)}/></div><select value={platform} onChange={e=>setPlatform(e.target.value)}><option>Todas</option><option>Shopee</option><option>Mercado Livre</option></select></div><ProductList items={filtered} onAd={makeAd} onCopy={copy} onRemove={remove}/>{filtered.length===0&&<div className="empty">Nenhum produto encontrado.</div>}</section>}
         {page==='Criador de anúncios' && <section className="section-card"><div className="section-head"><div><h3><Sparkles size={19}/> Criador de anúncios</h3><p>Monte uma legenda promocional pronta para revisar e copiar.</p></div></div><div className="ad-layout"><div><label>Produto cadastrado</label><select value={selected?.id||''} onChange={e=>{const p=items.find(x=>String(x.id)===e.target.value);if(p)makeAd(p)}}><option value="">Selecione um produto</option>{items.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select>{selected&&<div className="selected-product"><b>{selected.name}</b><span>{selected.platform} {selected.price?'· R$ '+selected.price:''}</span></div>}<p className="hint">A legenda é gerada localmente com um modelo simples. Revise preço, disponibilidade e regras da plataforma antes de publicar.</p></div><div><label>Texto promocional editável</label><textarea rows="12" value={adText} onChange={e=>setAdText(e.target.value)} placeholder="Selecione um produto para gerar uma sugestão de anúncio..."/><button className="primary full" disabled={!adText} onClick={()=>copy(adText,'Texto copiado!') }><Copy size={16}/> Copiar anúncio</button></div></div></section>}
-        {page==='Configurações' && <section className="section-card"><h3>Configurações do projeto</h3><p className="muted">Esta versão salva os dados somente neste navegador e dispositivo.</p><div className="notice"><Sparkles/><div><b>Automação em nuvem — próxima etapa</b><p>Para executar campanhas 24 horas sem depender do aparelho, será necessário configurar backend, banco de dados, credenciais oficiais e agendador.</p></div></div><div className="notice"><Smartphone/><div><b>Android e Windows</b><p>A interface é responsiva. A instalação como aplicativo será preparada em uma etapa posterior, após validar o painel.</p></div></div><div className="notice warning"><Settings/><div><b>Publicação em redes sociais</b><p>Nenhuma publicação é enviada automaticamente nesta versão. As integrações dependerão das APIs e permissões oficiais de cada canal.</p></div></div><button className="danger-outline" onClick={()=>{if(confirm('Apagar todos os produtos salvos neste navegador?')){save([]);notify('Catálogo limpo.')}}}><Trash2 size={16}/> Apagar catálogo local</button></section>}
-        <footer>Central de Afiliados 24H <span>·</span> MVP 0.1.0 <span>·</span> Feito para organizar suas ofertas</footer>
+        {page==='Configurações' && <section className="section-card"><h3>Configurações do projeto</h3><p className="muted">Os novos produtos são armazenados no Supabase.</p><div className="notice"><Sparkles/><div><b>Automação em nuvem — próxima etapa</b><p>Para executar campanhas 24 horas sem depender do aparelho, será necessário configurar backend, banco de dados, credenciais oficiais e agendador.</p></div></div><div className="notice"><Smartphone/><div><b>Android e Windows</b><p>A interface é responsiva. A instalação como aplicativo será preparada em uma etapa posterior, após validar o painel.</p></div></div><div className="notice warning"><Settings/><div><b>Publicação em redes sociais</b><p>Nenhuma publicação é enviada automaticamente nesta versão. As integrações dependerão das APIs e permissões oficiais de cada canal.</p></div></div><button className="secondary" disabled={busy} onClick={importLocal}>Importar produtos deste navegador</button></section>}
+        <footer>Central de Afiliados 24H <span>·</span> MVP 0.2.0 <span>·</span> Feito para organizar suas ofertas</footer>
       </div>
     </main>
     {modal&&<div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setModal(false)}}><form className="modal" onSubmit={add}><div className="modal-head"><div><span className="eyebrow">CATÁLOGO</span><h2>Cadastrar produto</h2></div><button type="button" className="icon-btn" onClick={()=>setModal(false)}><X/></button></div><label>Nome do produto *</label><input required autoFocus value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Ex.: Fone Bluetooth sem fio"/><label>Plataforma</label><select value={form.platform} onChange={e=>setForm({...form,platform:e.target.value})}><option>Shopee</option><option>Mercado Livre</option></select><label>Preço (R$)</label><input value={form.price} onChange={e=>setForm({...form,price:e.target.value})} placeholder="Ex.: 59,90"/><label>Categoria</label><input value={form.category} onChange={e=>setForm({...form,category:e.target.value})} placeholder="Ex.: Eletrônicos"/><label>Link de afiliado *</label><input required type="url" value={form.url} onChange={e=>setForm({...form,url:e.target.value})} placeholder="https://..."/><div className="modal-actions"><button type="button" className="secondary" onClick={()=>setModal(false)}>Cancelar</button><button className="primary" type="submit"><Check size={16}/> Salvar produto</button></div></form></div>}
