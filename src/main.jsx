@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LayoutDashboard, Package, Megaphone, Settings, Search, Plus, ExternalLink, Copy, ShoppingBag, Store, MousePointerClick, Link2, Trash2, Sparkles, Menu, X, Check, Smartphone, Monitor } from 'lucide-react';
 import './styles.css';
+import { AuthGate } from './AuthGate.jsx';
 
 const KEY = 'central-afiliados-produtos-v1';
 const initial = [
@@ -70,4 +71,4 @@ function App() {
 function Stat({icon:Icon,label,value,color}){return <div className="stat-card"><div className={'stat-icon '+color}><Icon size={20}/></div><div><span>{label}</span><strong>{value}</strong></div></div>}
 function Quick({icon:Icon,title,desc,onClick}){return <button className="quick" onClick={onClick}><div className="quick-icon"><Icon size={20}/></div><div><b>{title}</b><span>{desc}</span></div><ExternalLink size={15} className="quick-arrow"/></button>}
 function ProductList({items,onAd,onCopy,onRemove}){if(!items.length)return <div className="empty">Seu catálogo está vazio. Cadastre seu primeiro produto para começar.</div>;return <div className="product-list">{items.map(p=><div className="product-row" key={p.id}><div className={'platform-icon '+(p.platform==='Shopee'?'shopee':'ml')}>{p.platform==='Shopee'?<ShoppingBag size={19}/>:<Store size={19}/>}</div><div className="product-info"><b>{p.name}</b><span>{p.platform} {p.category?'· '+p.category:''} {p.price?'· R$ '+p.price:''}</span><small>{p.url}</small></div><div className="product-actions"><button title="Copiar link" onClick={()=>onCopy(p.url,'Link copiado!')}><Copy size={16}/></button><button title="Criar anúncio" onClick={()=>onAd(p)}><Megaphone size={16}/></button><button title="Abrir link" onClick={()=>window.open(p.url,'_blank','noopener,noreferrer')}><ExternalLink size={16}/></button><button title="Excluir" className="remove" onClick={()=>onRemove(p.id)}><Trash2 size={16}/></button></div></div>)}</div>}
-createRoot(document.getElementById('root')).render(<App/>);
+createRoot(document.getElementById('root')).render(<AuthGate><App/></AuthGate>);
